@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import Footer from '@/components/Footer';
+import Navbar from '@/components/Navbar';
 import {
   StyleSheet,
   View,
@@ -9,12 +11,12 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Dimensions,
-  Alert
+  Alert,
+  TextInput
 } from 'react-native';
 import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
-
 
 type Video = {
   videoId: string;
@@ -24,11 +26,15 @@ type Video = {
   duration: string;
   description?: string;
   publishedAt?: string;
-
 };
+
+const VIDEOS_PER_PAGE = 5; // Number of videos to show per page
 
 export default function VideoListScreen() {
   const [videos, setVideos] = useState<Video[]>([]);
+  const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -37,13 +43,21 @@ export default function VideoListScreen() {
     fetchVideos();
   }, []);
 
+  // Calculate paginated videos
+  const paginatedVideos = filteredVideos.slice(
+    (currentPage - 1) * VIDEOS_PER_PAGE,
+    currentPage * VIDEOS_PER_PAGE
+  );
+
+  // Calculate total pages
+  const totalPages = Math.ceil(filteredVideos.length / VIDEOS_PER_PAGE);
+
   const fetchVideos = async () => {
     try {
       setLoading(true);
       setError(null);
     
       const API_BASE_URL = 'http://localhost:3000'; 
-      
       
       console.log('Fetching videos from:', `${API_BASE_URL}/api/videos`);
       
@@ -61,12 +75,13 @@ export default function VideoListScreen() {
       }
       
       setVideos(data);
+      setFilteredVideos(data);
+      setCurrentPage(1); // Reset to first page when new data loads
     } catch (err) {
       console.error('Error fetching videos:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to load videos';
       setError(errorMessage);
       
-     
       if (err.message.includes('Network request failed')) {
         Alert.alert(
           'Connection Error',
@@ -82,8 +97,46 @@ export default function VideoListScreen() {
     }
   };
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    
+    if (query.trim() === '') {
+      setFilteredVideos(videos);
+    } else {
+      const filtered = videos.filter(video =>
+        video.title.toLowerCase().includes(query.toLowerCase()) ||
+        video.channelTitle.toLowerCase().includes(query.toLowerCase())
+      );
+      setFilteredVideos(filtered);
+    }
+    setCurrentPage(1); // Reset to first page when searching
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setFilteredVideos(videos);
+    setCurrentPage(1);
+  };
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
   const formatDuration = (duration: string) => {
-   
     const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
     const hours = match?.[1] || '0';
     const minutes = match?.[2] || '0';
@@ -96,7 +149,6 @@ export default function VideoListScreen() {
   };
 
   const openVideo = (video: Video) => {
-   
     router.push({
       pathname: '/videoPlayer',
       params: { 
@@ -125,6 +177,40 @@ export default function VideoListScreen() {
     </TouchableOpacity>
   );
 
+  const renderPaginationControls = () => {
+    if (filteredVideos.length <= VIDEOS_PER_PAGE) return null;
+
+    return (
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity 
+          onPress={goToPrevPage}
+          disabled={currentPage === 1}
+          style={[styles.paginationButton, currentPage === 1 && styles.disabledButton]}
+        >
+          <Text style={[styles.paginationText, currentPage === 1 && styles.disabledText]}>
+            ← Previous
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.pageInfo}>
+          <Text style={styles.pageText}>
+            Page {currentPage} of {totalPages}
+          </Text>
+        </View>
+
+        <TouchableOpacity 
+          onPress={goToNextPage}
+          disabled={currentPage === totalPages}
+          style={[styles.paginationButton, currentPage === totalPages && styles.disabledButton]}
+        >
+          <Text style={[styles.paginationText, currentPage === totalPages && styles.disabledText]}>
+            Next →
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -137,7 +223,24 @@ export default function VideoListScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Learnoverse Videos</Text>
+        <Navbar/>
+        
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search videos or channels..."
+            value={searchQuery}
+            onChangeText={handleSearch}
+            placeholderTextColor="#888"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+              <Text style={styles.clearText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         {error && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
@@ -149,22 +252,33 @@ export default function VideoListScreen() {
       </View>
       
       <FlatList
-        data={videos}
+        data={paginatedVideos}
         renderItem={renderVideoItem}
         keyExtractor={item => item.videoId}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           !loading && (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No videos available</Text>
-              <Text style={styles.emptySubText}>Make sure your backend server is running</Text>
+              {searchQuery ? (
+                <>
+                  <Text style={styles.emptyText}>No videos found for "{searchQuery}"</Text>
+                  <Text style={styles.emptySubText}>Try a different search term</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.emptyText}>No videos available</Text>
+                  <Text style={styles.emptySubText}>Make sure your backend server is running</Text>
+                </>
+              )}
               <TouchableOpacity onPress={fetchVideos} style={styles.retryButton}>
                 <Text style={styles.retryText}>Retry</Text>
               </TouchableOpacity>
             </View>
           )
         }
+        ListFooterComponent={renderPaginationControls}
       />
+      <Footer></Footer>
     </SafeAreaView>
   );
 }
@@ -180,10 +294,28 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
-  headerTitle: {
-    fontSize: 20,
+  // Search Bar Styles
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    color: '#333',
+    fontSize: 16,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  clearText: {
+    fontSize: 18,
+    color: '#888',
     fontWeight: 'bold',
-    textAlign: 'center',
   },
   centerContainer: {
     flex: 1,
@@ -193,6 +325,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 10,
+    flexGrow: 1,
   },
   videoItem: {
     flexDirection: 'row',
@@ -257,18 +390,57 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   emptyContainer: {
-    padding: 20,
+    padding: 40,
     alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
   },
   emptyText: {
     fontSize: 16,
     color: '#666',
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubText: {
     fontSize: 14,
     color: '#888',
     marginBottom: 16,
     textAlign: 'center',
+  },
+  // Pagination Styles
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    marginTop: 10,
+  },
+  paginationButton: {
+    padding: 10,
+    backgroundColor: '#ff0000',
+    borderRadius: 6,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+  },
+  paginationText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  disabledText: {
+    color: '#666',
+  },
+  pageInfo: {
+    alignItems: 'center',
+  },
+  pageText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
 });
